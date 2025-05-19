@@ -5,7 +5,10 @@ from data.asset_graph import AssetGraphDataset
 from models.transformer import SpatioTemporalGraphTransformer
 from train.train import train_model, evaluate_model, visualize_covariance
 from data.asset_graph import collate_fn
-from data.load_data import load_market_data
+import importlib
+import data.load_data
+importlib.reload(data.load_data)
+from data.load_data import load_sp500_data
 
 def main():
     torch.manual_seed(42)
@@ -14,23 +17,33 @@ def main():
         torch.cuda.manual_seed_all(42)
     
     # Hyperparams
-    window_size = 20
+    window_size = 15
     horizon = 5 # Target horizon for covariance (and NLL loss)
     batch_size = 32
-    num_epochs = 10
+    num_epochs = 15
     patience = 10
     learning_rate = 0.0005
-    return_feature_idx = 0 # IMPORTANT: Set this to the index of returns in your feature dimension
-
-    # Load data
-    # Data shape: [timesteps, num_assets, num_features]
-    # data[:, :, return_feature_idx] should be asset returns.
-    market_data_full = load_market_data(num_timesteps=500, num_assets=5, num_features=4)
     
-    # Data dimensions
-    num_total_timesteps, num_assets, num_features_data = market_data_full.shape
-    print(f"Data loaded: {num_total_timesteps} timesteps, {num_assets} assets, {num_features_data} features.")
+    selected_features = ["Adjusted Close", "Volume"]
+    return_feature_name = "Adjusted Close"
 
+    market_data_full, asset_names, common_dates, loaded_features = load_sp500_data(
+        start_date_str="2012-01-03",
+        end_date_str="2013-12-31", 
+        features=selected_features,
+        min_coverage_ratio=0.90 # Adjust if needed
+    )
+
+    try:
+        return_feature_idx = loaded_features.index(return_feature_name)
+        print(f"Using '{return_feature_name}' at index {return_feature_idx} as the return feature.")
+    except ValueError:
+        raise ValueError(f"Return feature '{return_feature_name}' not found in loaded features: {loaded_features}")
+
+    num_total_timesteps, num_assets, num_features_data = market_data_full.shape
+    print(f"Data loaded: {num_total_timesteps} timesteps ({common_dates.min().date()} to {common_dates.max().date()}), "
+          f"{num_assets} assets, {num_features_data} features: {loaded_features}.")
+    
     # Split data
     train_ratio, val_ratio = 0.7, 0.15
     min_data_len = window_size + horizon 
@@ -71,12 +84,12 @@ def main():
     
     # Model parameters
     # in_features from data, num_assets from data
-    hidden_dim_gnn = 64
-    embedding_dim_node = 128 # d_model for transformer and decoder input
+    hidden_dim_gnn = 32
+    embedding_dim_node = 64 # d_model for transformer and decoder input
     num_gnn_layers = 2
-    num_transformer_layers = 3
-    gnn_heads = 4
-    transformer_heads = 4
+    num_transformer_layers = 2
+    gnn_heads = 2
+    transformer_heads = 2
     model_dropout = 0.1
     
     model = SpatioTemporalGraphTransformer(
